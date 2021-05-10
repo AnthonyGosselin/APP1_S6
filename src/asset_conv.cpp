@@ -359,8 +359,13 @@ int main(int argc, char** argv)
         std::cerr << "Using stdin (press CTRL-D for EOF)." << std::endl;
     }
 
+
     // TODO: change the number of threads from args.
-    Processor proc;
+    int nbrThreads = NUM_THREADS;
+    if (argc >= 3){
+        nbrThreads = int(argv[2]);
+    }
+    Processor proc(nbrThreads);
     
     while (!std::cin.eof()) {
 
