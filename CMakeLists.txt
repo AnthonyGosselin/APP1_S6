@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD          11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS        OFF)
 
-set(CMAKE_BUILD_TYPE            Debug) # Change to RelWithDebInfo or Release
+set(CMAKE_BUILD_TYPE            Release) # Change to RelWithDebInfo or Release
 
 add_library(nanosvg     STATIC  src/nanosvg.c)
 add_library(stb_image   STATIC  src/stb_image.c)

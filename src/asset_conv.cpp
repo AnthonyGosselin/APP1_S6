@@ -12,6 +12,8 @@
 #include <string>
 #include <cstring>
 #include <thread>
+#include <condition_variable>
+#include <mutex>
 
 namespace gif643 {
 
@@ -21,6 +23,11 @@ const int       NUM_THREADS = 1;    // Default value, changed by argv.
 
 using PNGDataVec = std::vector<char>;
 using PNGDataPtr = std::shared_ptr<PNGDataVec>;
+
+std::condition_variable cond_var;
+std::mutex queue_mutex;
+
+int tasks_in_queue = 0;
 
 /// \brief Wraps callbacks from stbi_image_write
 //
@@ -246,8 +253,15 @@ public:
     ~Processor()
     {
         should_run_ = false;
+        cond_var.notify_all(); // Notify all waiting threads (signal to exit)
+
+        int i = 0;
         for (auto& qthread: queue_threads_) {
+            cond_var.notify_all();
+            //printf("Notifying all threads\n");
             qthread.join();
+            //printf("Done joining\n");
+            i++;
         }
     }
 
@@ -310,8 +324,11 @@ public:
         std::queue<TaskDef> queue;
         TaskDef def;
         if (parse(line_org, def)) {
+            std::lock_guard<std::mutex> parseAndQueueLock(queue_mutex);
             std::cerr << "Queueing task '" << line_org << "'." << std::endl;
             task_queue_.push(def);
+            tasks_in_queue++;
+            cond_var.notify_one();
         }
     }
 
@@ -326,12 +343,22 @@ private:
     void processQueue()
     {
         while (should_run_) {
-            if (!task_queue_.empty()) {
-                TaskDef task_def = task_queue_.front();
-                task_queue_.pop();
-                TaskRunner runner(task_def);
-                runner();
+            std::unique_lock<std::mutex> queueLock(queue_mutex);
+            cond_var.wait(queueLock, [&] {return (!should_run_ || !queueEmpty());});
+
+            if (!should_run_) {
+                printf("Exiting because should_run_ == false\n");
+                return;
             }
+
+            TaskDef task_def = task_queue_.front();
+            task_queue_.pop();
+            tasks_in_queue--;
+
+            queueLock.unlock();
+
+            TaskRunner runner(task_def);
+            runner();
         }
     }
 };
@@ -360,11 +387,13 @@ int main(int argc, char** argv)
     }
 
 
-    // TODO: change the number of threads from args.
     int nbrThreads = NUM_THREADS;
-    if (argc >= 3){
-        nbrThreads = int(argv[2]);
+    if (argc >= 3) {
+        nbrThreads = std::atoi(argv[2]);
     }
+
+    printf("Number of threads: %d\n", nbrThreads);
+
     Processor proc(nbrThreads);
     
     while (!std::cin.eof()) {
@@ -382,5 +411,11 @@ int main(int argc, char** argv)
     }
 
     // Wait until the processor queue's has tasks to do.
-    while (!proc.queueEmpty()) {};
+    while (tasks_in_queue > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        //printf("Waiting for queue to empty...\n");
+        //printf("Tasks in queue: %d\n", tasks_in_queue);
+    };
+
+    printf("Exiting main thread\n");
 }
