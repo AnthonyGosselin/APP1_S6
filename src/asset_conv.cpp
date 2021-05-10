@@ -26,6 +26,7 @@ using PNGDataPtr = std::shared_ptr<PNGDataVec>;
 
 std::condition_variable cond_var;
 std::mutex queue_mutex;
+std::mutex cache_mutex;
 
 int tasks_in_queue = 0;
 
@@ -109,6 +110,8 @@ struct TaskDef
     std::string fname_in;
     std::string fname_out; 
     int size;
+
+    PNGDataPtr cachedData;
 };
 
 /// \brief A class representing the processing of one SVG file to a PNG stream.
@@ -126,7 +129,7 @@ public:
     {
     }
 
-    void operator()()
+    PNGDataPtr operator()()
     {
         const std::string&  fname_in    = task_def_.fname_in;
         const std::string&  fname_out   = task_def_.fname_out;
@@ -135,6 +138,7 @@ public:
         const size_t        stride      = width * BPP;
         const size_t        image_size  = height * stride;
         const float&        scale       = float(width) / ORG_WIDTH;
+        const PNGDataPtr    cachedData  = task_def_.cachedData;
 
         std::cerr << "Running for "
                   << fname_in 
@@ -144,34 +148,46 @@ public:
         NSVGimage*          image_in        = nullptr;
         NSVGrasterizer*     rast            = nullptr;
 
+        PNGDataPtr dataToCache;
+
         try {
-            // Read the file ...
-            image_in = nsvgParseFromFile(fname_in.c_str(), "px", 0);
-            if (image_in == nullptr) {
-                std::string msg = "Cannot parse '" + fname_in + "'.";
-                throw std::runtime_error(msg.c_str());
+
+            PNGDataPtr pngData = cachedData;
+
+            // Check cache
+            if (!cachedData) {
+
+                // Read the file ...
+                image_in = nsvgParseFromFile(fname_in.c_str(), "px", 0);
+                if (image_in == nullptr) {
+                    std::string msg = "Cannot parse '" + fname_in + "'.";
+                    throw std::runtime_error(msg.c_str());
+                }
+
+                // Raster it ...
+                std::vector<unsigned char> image_data(image_size, 0);
+                rast = nsvgCreateRasterizer();
+                nsvgRasterize(rast,
+                            image_in,
+                            0,
+                            0,
+                            scale,
+                            &image_data[0],
+                            width,
+                            height,
+                            stride); 
+
+                // Compress it ...
+                PNGWriter writer;
+                writer(width, height, BPP, &image_data[0], stride);
+
+                pngData = writer.getData();
+                dataToCache = pngData;
             }
 
-            // Raster it ...
-            std::vector<unsigned char> image_data(image_size, 0);
-            rast = nsvgCreateRasterizer();
-            nsvgRasterize(rast,
-                          image_in,
-                          0,
-                          0,
-                          scale,
-                          &image_data[0],
-                          width,
-                          height,
-                          stride); 
-
-            // Compress it ...
-            PNGWriter writer;
-            writer(width, height, BPP, &image_data[0], stride);
-
             // Write it out ...
+            auto data = pngData;
             std::ofstream file_out(fname_out, std::ofstream::binary);
-            auto data = writer.getData();
             file_out.write(&(data->front()), data->size());
             
         } catch (std::runtime_error e) {
@@ -191,6 +207,8 @@ public:
                   << fname_in 
                   << "." 
                   << std::endl;
+        
+        return dataToCache;
     }
 };
 
@@ -311,7 +329,7 @@ public:
         TaskDef def;
         if (parse(line_org, def)) {
             TaskRunner runner(def);
-            runner();
+            auto dataToCache = runner();
         }
     }
 
@@ -347,7 +365,7 @@ private:
             cond_var.wait(queueLock, [&] {return (!should_run_ || !queueEmpty());});
 
             if (!should_run_) {
-                printf("Exiting because should_run_ == false\n");
+                //printf("Exiting because should_run_ == false\n");
                 return;
             }
 
@@ -357,8 +375,30 @@ private:
 
             queueLock.unlock();
 
+            // Check cache for data, and pass to TaskDef if there is a hit
+            std::unique_lock<std::mutex> cacheLock(cache_mutex);
+            PNGDataPtr cachedData;
+            std::string cache_tag = task_def.fname_in + ';' + std::to_string(task_def.size);
+            auto iterator = png_cache_.find(cache_tag);
+
+            if (iterator != png_cache_.end()) {
+                printf("Cache hit for: %s\n", cache_tag.c_str());
+                cachedData = iterator->second;
+                task_def.cachedData = cachedData;
+            }
+            cacheLock.unlock();
+
+            // Execute task
             TaskRunner runner(task_def);
-            runner();
+            auto dataToCache = runner();
+
+            // Save data to cache
+            if (dataToCache) {
+                cacheLock.lock();
+                printf("Inserting into cache for: %s\n", cache_tag.c_str());
+                png_cache_.insert({cache_tag, dataToCache});
+                cacheLock.unlock();
+            }
         }
     }
 };
