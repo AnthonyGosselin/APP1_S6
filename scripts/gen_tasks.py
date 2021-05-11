@@ -25,14 +25,6 @@ for f in files:
         width))
 
 # Repetition test for cache
-"""
-for f in files:
-    basename    = os.path.splitext(f)[0]
-    pngname     = basename + ".png"
-    print("%s;%s;%s"%(
-        os.path.join(dirname, f),
-        os.path.join(out_dirname, pngname),
-        width))
 
 for f in files:
     basename    = os.path.splitext(f)[0]
@@ -65,4 +57,12 @@ for f in files:
         os.path.join(dirname, f),
         os.path.join(out_dirname, pngname),
         width))
-"""
+
+for f in files:
+    basename    = os.path.splitext(f)[0]
+    pngname     = basename + ".png"
+    print("%s;%s;%s"%(
+        os.path.join(dirname, f),
+        os.path.join(out_dirname, pngname),
+        width))
+

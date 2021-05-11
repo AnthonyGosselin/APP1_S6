@@ -376,15 +376,26 @@ private:
             queueLock.unlock();
 
             // Check cache for data, and pass to TaskDef if there is a hit
-            std::unique_lock<std::mutex> cacheLock(cache_mutex);
             PNGDataPtr cachedData;
+            std::unique_lock<std::mutex> cacheLock(cache_mutex);
             std::string cache_tag = task_def.fname_in + ';' + std::to_string(task_def.size);
             auto iterator = png_cache_.find(cache_tag);
-
             if (iterator != png_cache_.end()) {
+                while (iterator->second == nullptr) {
+                    cacheLock.unlock();
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+                    cacheLock.lock();
+                    iterator = png_cache_.find(cache_tag);
+                }
+
                 printf("Cache hit for: %s\n", cache_tag.c_str());
                 cachedData = iterator->second;
                 task_def.cachedData = cachedData;
+            }
+            else {
+                // Save temporary cacheTag element if not found
+                printf("Temporary cachetag insert into cache for: %s\n", cache_tag.c_str());
+                png_cache_.insert({cache_tag, nullptr});
             }
             cacheLock.unlock();
 
@@ -396,7 +407,7 @@ private:
             if (dataToCache) {
                 cacheLock.lock();
                 printf("Inserting into cache for: %s\n", cache_tag.c_str());
-                png_cache_.insert({cache_tag, dataToCache});
+                png_cache_.at(cache_tag) = dataToCache;
                 cacheLock.unlock();
             }
         }
