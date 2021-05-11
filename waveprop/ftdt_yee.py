@@ -1,5 +1,8 @@
 # GPL3, Copyright (c) Max Hofheinz, UdeS, 2021
 
+import matplotlib
+matplotlib.use('Agg')
+
 import numpy, fiddle
 
 def curl_E(E):

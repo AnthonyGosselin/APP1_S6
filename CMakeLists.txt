@@ -22,3 +22,5 @@ add_executable(lab_ex3 src/lab_ex3.cpp)
 target_link_libraries(lab_ex1 pthread)
 target_link_libraries(lab_ex2 pthread)
 target_link_libraries(lab_ex3 pthread)
+
+add_executable(ftdt_yee src/ftdt_yee.cpp)
