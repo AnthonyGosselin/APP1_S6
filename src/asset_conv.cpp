@@ -378,7 +378,9 @@ private:
             // Check cache for data, and pass to TaskDef if there is a hit
             PNGDataPtr cachedData;
             std::string cache_tag = task_def.fname_in + ';' + std::to_string(task_def.size);
+            std::unique_lock<std::mutex> cacheLock(cache_mutex);
             auto iterator = png_cache_.find(cache_tag);
+            cacheLock.unlock();
             if (iterator != png_cache_.end()) {
 
                 auto cachedData = iterator->second;
@@ -405,7 +407,6 @@ private:
                 }
 
                 printf("Cache hit for: %s\n", cache_tag.c_str());
-                //cachedData = iterator->second;
                 task_def.cachedData = cachedData;
             }
             else {
